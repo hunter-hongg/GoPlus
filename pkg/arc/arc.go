@@ -193,13 +193,13 @@ func (a *Arc[T]) With(fn func(*T)) bool {
 }
 
 // Map 应用函数并返回新值（不可变操作）
-func (a *Arc[T]) Map[U any](fn func(T) U) *Arc[U] {
+func MapArc[T, U any](a *Arc[T], fn func(T) U) *Arc[U] {
 	if a.ptr == nil {
 		return nil
 	}
 	
 	internal := (*arcInternal[T])(a.ptr)
-	return NewArc[U](fn(internal.data))
+	return NewArc(fn(internal.data))
 }
 
 // ============================================================================

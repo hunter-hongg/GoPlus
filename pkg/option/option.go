@@ -1,186 +1,261 @@
 package option
 
 // Option 表示一个可选值，类似于Rust的Option
-type Option[T any] interface {
-    IsSome() bool
-    IsNone() bool
-    Unwrap() T
-    UnwrapOr(defaultValue T) T
-    UnwrapOrElse(f func() T) T
-    Expect(msg string) T
-    Map[U any](f func(T) U) Option[U]
-    AndThen[U any](f func(T) Option[U]) Option[U]
-    Or(other Option[T]) Option[T]
-    And(other Option[T]) Option[T]
-    ToResult[E any](err E) Result[T, E]
+type Option[T any] struct {
+    value   T
+    present bool
 }
 
-// Some 表示有值
-type some[T any] struct {
-    value T
+// 基本操作
+func (o Option[T]) IsSome() bool { return o.present }
+func (o Option[T]) IsNone() bool { return !o.present }
+
+func (o Option[T]) Unwrap() T {
+    if !o.present {
+        panic("called `Unwrap()` on a `None` value")
+    }
+    return o.value
 }
 
-func (s *some[T]) IsSome() bool { return true }
-func (s *some[T]) IsNone() bool { return false }
-func (s *some[T]) Unwrap() T    { return s.value }
-func (s *some[T]) UnwrapOr(defaultValue T) T { return s.value }
-func (s *some[T]) UnwrapOrElse(f func() T) T { return s.value }
-func (s *some[T]) Expect(msg string) T { return s.value }
-
-func (s *some[T]) Map[U any](f func(T) U) Option[U] {
-    return Some[U](f(s.value))
+func (o Option[T]) UnwrapOr(defaultValue T) T {
+    if o.present {
+        return o.value
+    }
+    return defaultValue
 }
 
-func (s *some[T]) AndThen[U any](f func(T) Option[U]) Option[U] {
-    return f(s.value)
+func (o Option[T]) UnwrapOrElse(f func() T) T {
+    if o.present {
+        return o.value
+    }
+    return f()
 }
 
-func (s *some[T]) Or(other Option[T]) Option[T] {
-    return s
+func (o Option[T]) Expect(msg string) T {
+    if !o.present {
+        panic(msg)
+    }
+    return o.value
 }
 
-func (s *some[T]) And(other Option[T]) Option[T] {
+// 独立函数版本的各种操作
+
+// Map 将 Option[T] 转换为 Option[U]
+func Map[T, U any](opt Option[T], f func(T) U) Option[U] {
+    if !opt.present {
+        return Option[U]{present: false}
+    }
+    return Option[U]{
+        value:   f(opt.value),
+        present: true,
+    }
+}
+
+// MapOr 将 Option[T] 转换为 U，提供默认值
+func MapOr[T, U any](opt Option[T], defaultValue U, f func(T) U) U {
+    if !opt.present {
+        return defaultValue
+    }
+    return f(opt.value)
+}
+
+// MapOrElse 将 Option[T] 转换为 U，提供默认函数
+func MapOrElse[T, U any](opt Option[T], defaultFn func() U, f func(T) U) U {
+    if !opt.present {
+        return defaultFn()
+    }
+    return f(opt.value)
+}
+
+// AndThen 链式调用返回 Option 的函数
+func AndThen[T, U any](opt Option[T], f func(T) Option[U]) Option[U] {
+    if !opt.present {
+        return Option[U]{present: false}
+    }
+    return f(opt.value)
+}
+
+// Or 返回第一个 Some 的 Option，否则返回 other
+func Or[T any](opt Option[T], other Option[T]) Option[T] {
+    if opt.present {
+        return opt
+    }
     return other
 }
 
-func (s *some[T]) ToResult[E any](err E) Result[T, E] {
-    return Ok[T, E](s.value)
+// OrElse 返回第一个 Some 的 Option，否则调用函数
+func OrElse[T any](opt Option[T], f func() Option[T]) Option[T] {
+    if opt.present {
+        return opt
+    }
+    return f()
 }
 
-// None 表示无值
-type none[T any] struct{}
-
-func (n *none[T]) IsSome() bool { return false }
-func (n *none[T]) IsNone() bool { return true }
-func (n *none[T]) Unwrap() T    { panic("called `Unwrap()` on a `None` value") }
-func (n *none[T]) UnwrapOr(defaultValue T) T { return defaultValue }
-func (n *none[T]) UnwrapOrElse(f func() T) T { return f() }
-func (n *none[T]) Expect(msg string) T { panic(msg) }
-
-func (n *none[T]) Map[U any](f func(T) U) Option[U] {
-    return None[U]()
+// And 如果两个都是 Some，返回第二个，否则返回 None
+func And[T any](opt Option[T], other Option[T]) Option[T] {
+    if opt.present {
+        return other
+    }
+    return Option[T]{present: false}
 }
 
-func (n *none[T]) AndThen[U any](f func(T) Option[U]) Option[U] {
-    return None[U]()
+// Filter 如果值满足谓词则返回 Some，否则返回 None
+func Filter[T any](opt Option[T], predicate func(T) bool) Option[T] {
+    if opt.present && predicate(opt.value) {
+        return opt
+    }
+    return Option[T]{present: false}
 }
 
-func (n *none[T]) Or(other Option[T]) Option[T] {
-    return other
+// ToResult 将 Option 转换为 Result
+func ToResult[T, E any](opt Option[T], err E) Result[T, E] {
+    if opt.present {
+        return Result[T, E]{
+            value: opt.value,
+            ok:    true,
+        }
+    }
+    return Result[T, E]{
+        err: err,
+        ok:  false,
+    }
 }
 
-func (n *none[T]) And(other Option[T]) Option[T] {
-    return n
-}
-
-func (n *none[T]) ToResult[E any](err E) Result[T, E] {
-    return Err[T, E](err)
-}
-
-// Some 创建有值的Option
+// 创建函数
 func Some[T any](value T) Option[T] {
-    return &some[T]{value: value}
+    return Option[T]{
+        value:   value,
+        present: true,
+    }
 }
 
-// None 创建无值的Option
 func None[T any]() Option[T] {
-    return &none[T]{}
+    return Option[T]{present: false}
 }
 
 // ============================================================================
-// Result 类型实现
+// Result 类型实现（同样采用独立函数方法）
 // ============================================================================
 
-// Result 表示操作结果，可以是成功(Ok)或失败(Err)，类似于Rust的Result
-type Result[T any, E any] interface {
-    IsOk() bool
-    IsErr() bool
-    Unwrap() T
-    UnwrapOr(defaultValue T) T
-    UnwrapOrElse(f func(E) T) T
-    Expect(msg string) T
-    UnwrapErr() E
-    Map[U any](f func(T) U) Result[U, E]
-    MapErr[F any](f func(E) F) Result[T, F]
-    AndThen[U any](f func(T) Result[U, E]) Result[U, E]
-    OrElse[F any](f func(E) Result[T, F]) Result[T, F]
-    ToOption() Option[T]
-}
-
-// ok 表示成功结果
-type ok[T any, E any] struct {
+// Result 表示操作结果，可以是成功(Ok)或失败(Err)
+type Result[T any, E any] struct {
     value T
+    err   E
+    ok    bool
 }
 
-func (o *ok[T, E]) IsOk() bool  { return true }
-func (o *ok[T, E]) IsErr() bool { return false }
-func (o *ok[T, E]) Unwrap() T   { return o.value }
-func (o *ok[T, E]) UnwrapOr(defaultValue T) T { return o.value }
-func (o *ok[T, E]) UnwrapOrElse(f func(E) T) T { return o.value }
-func (o *ok[T, E]) Expect(msg string) T { return o.value }
-func (o *ok[T, E]) UnwrapErr() E { panic("called `UnwrapErr()` on an `Ok` value") }
+// 基本操作
+func (r Result[T, E]) IsOk() bool  { return r.ok }
+func (r Result[T, E]) IsErr() bool { return !r.ok }
 
-func (o *ok[T, E]) Map[U any](f func(T) U) Result[U, E] {
-    return Ok[U, E](f(o.value))
+func (r Result[T, E]) Unwrap() T {
+    if !r.ok {
+        panic("called `Unwrap()` on an `Err` value")
+    }
+    return r.value
 }
 
-func (o *ok[T, E]) MapErr[F any](f func(E) F) Result[T, F] {
-    return Ok[T, F](o.value)
+func (r Result[T, E]) UnwrapOr(defaultValue T) T {
+    if r.ok {
+        return r.value
+    }
+    return defaultValue
 }
 
-func (o *ok[T, E]) AndThen[U any](f func(T) Result[U, E]) Result[U, E] {
-    return f(o.value)
+func (r Result[T, E]) UnwrapOrElse(f func(E) T) T {
+    if r.ok {
+        return r.value
+    }
+    return f(r.err)
 }
 
-func (o *ok[T, E]) OrElse[F any](f func(E) Result[T, F]) Result[T, F] {
-    return Ok[T, F](o.value)
+func (r Result[T, E]) Expect(msg string) T {
+    if !r.ok {
+        panic(msg)
+    }
+    return r.value
 }
 
-func (o *ok[T, E]) ToOption() Option[T] {
-    return Some[T](o.value)
+func (r Result[T, E]) UnwrapErr() E {
+    if r.ok {
+        panic("called `UnwrapErr()` on an `Ok` value")
+    }
+    return r.err
 }
 
-// err 表示失败结果
-type err[T any, E any] struct {
-    error E
+// 独立函数版本的各种操作
+
+// MapResult 将 Result[T, E] 转换为 Result[U, E]
+func MapResult[T, U, E any](res Result[T, E], f func(T) U) Result[U, E] {
+    if !res.ok {
+        return Result[U, E]{
+            err: res.err,
+            ok:  false,
+        }
+    }
+    return Result[U, E]{
+        value: f(res.value),
+        ok:    true,
+    }
 }
 
-func (e *err[T, E]) IsOk() bool  { return false }
-func (e *err[T, E]) IsErr() bool { return true }
-func (e *err[T, E]) Unwrap() T   { panic("called `Unwrap()` on an `Err` value") }
-func (e *err[T, E]) UnwrapOr(defaultValue T) T { return defaultValue }
-func (e *err[T, E]) UnwrapOrElse(f func(E) T) T { return f(e.error) }
-func (e *err[T, E]) Expect(msg string) T { panic(msg) }
-func (e *err[T, E]) UnwrapErr() E { return e.error }
-
-func (e *err[T, E]) Map[U any](f func(T) U) Result[U, E] {
-    return Err[U, E](e.error)
+// MapErr 将 Result[T, E] 转换为 Result[T, F]
+func MapErr[T, E, F any](res Result[T, E], f func(E) F) Result[T, F] {
+    if !res.ok {
+        return Result[T, F]{
+            err: f(res.err),
+            ok:  false,
+        }
+    }
+    return Result[T, F]{
+        value: res.value,
+        ok:    true,
+    }
 }
 
-func (e *err[T, E]) MapErr[F any](f func(E) F) Result[T, F] {
-    return Err[T, F](f(e.error))
+// AndThenResult 链式调用返回 Result 的函数
+func AndThenResult[T, U, E any](res Result[T, E], f func(T) Result[U, E]) Result[U, E] {
+    if !res.ok {
+        return Result[U, E]{
+            err: res.err,
+            ok:  false,
+        }
+    }
+    return f(res.value)
 }
 
-func (e *err[T, E]) AndThen[U any](f func(T) Result[U, E]) Result[U, E] {
-    return Err[U, E](e.error)
+// OrElseResult 处理错误情况
+func OrElseResult[T, E, F any](res Result[T, E], f func(E) Result[T, F]) Result[T, F] {
+    if res.ok {
+        return Result[T, F]{
+            value: res.value,
+            ok:    true,
+        }
+    }
+    return f(res.err)
 }
 
-func (e *err[T, E]) OrElse[F any](f func(E) Result[T, F]) Result[T, F] {
-    return f(e.error)
-}
-
-func (e *err[T, E]) ToOption() Option[T] {
+// ToOption 将 Result 转换为 Option
+func (r Result[T, E]) ToOption() Option[T] {
+    if r.ok {
+        return Some(r.value)
+    }
     return None[T]()
 }
 
-// Ok 创建成功结果
+// 创建函数
 func Ok[T any, E any](value T) Result[T, E] {
-    return &ok[T, E]{value: value}
+    return Result[T, E]{
+        value: value,
+        ok:    true,
+    }
 }
 
-// Err 创建失败结果
-func Err[T any, E any](error E) Result[T, E] {
-    return &err[T, E]{error: error}
+func Err[T any, E any](err E) Result[T, E] {
+    return Result[T, E]{
+        err: err,
+        ok:  false,
+    }
 }
 
 // ============================================================================
@@ -189,16 +264,79 @@ func Err[T any, E any](error E) Result[T, E] {
 
 // MatchOption 模式匹配Option
 func MatchOption[T any, U any](opt Option[T], someFunc func(T) U, noneFunc func() U) U {
-    if opt.IsSome() {
-        return someFunc(opt.Unwrap())
+    if opt.present {
+        return someFunc(opt.value)
     }
     return noneFunc()
 }
 
 // MatchResult 模式匹配Result
 func MatchResult[T any, E any, U any](res Result[T, E], okFunc func(T) U, errFunc func(E) U) U {
-    if res.IsOk() {
-        return okFunc(res.Unwrap())
+    if res.ok {
+        return okFunc(res.value)
     }
-    return errFunc(res.UnwrapErr())
+    return errFunc(res.err)
+}
+
+// Zip 将两个 Option 合并为一个 Option 对
+func Zip[T, U any](a Option[T], b Option[U]) Option[struct {
+    First  T
+    Second U
+}] {
+    if a.present && b.present {
+        return Some(struct {
+            First  T
+            Second U
+        }{
+            First:  a.value,
+            Second: b.value,
+        })
+    }
+    return None[struct {
+        First  T
+        Second U
+    }]()
+}
+
+// Unzip 将 Option 对分解为两个 Option
+func Unzip[T, U any](opt Option[struct {
+    First  T
+    Second U
+}]) (Option[T], Option[U]) {
+    if opt.present {
+        return Some(opt.value.First), Some(opt.value.Second)
+    }
+    return None[T](), None[U]()
+}
+
+// FromResult 将 Result 转换为 Option（忽略错误）
+func FromResult[T, E any](res Result[T, E]) Option[T] {
+    if res.ok {
+        return Some(res.value)
+    }
+    return None[T]()
+}
+
+// FromPtr 从指针创建 Option
+func FromPtr[T any](ptr *T) Option[T] {
+    if ptr != nil {
+        return Some(*ptr)
+    }
+    return None[T]()
+}
+
+// ToPtr 将 Option 转换为指针
+func ToPtr[T any](opt Option[T]) *T {
+    if opt.present {
+        return &opt.value
+    }
+    return nil
+}
+
+// Flatten 将 Option[Option[T]] 转换为 Option[T]
+func Flatten[T any](opt Option[Option[T]]) Option[T] {
+    if opt.present {
+        return opt.value
+    }
+    return None[T]()
 }
